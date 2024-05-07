@@ -1,0 +1,379 @@
+---
+title: "Stunting Toddler (Balita) Detection"
+author: "Malena Fuentes & Jonathan Latim"
+date: "2024-03-20"
+output: pdf_document
+---
+
+# Stunting Toddler (Under 5 Years Childern) Detection with 121K rows dataset
+This "Stunting Baby/Toddler Detection" dataset is based on the z-score formula for determining stunting according to WHO (World Health Organization), that focuses on stunting detection in children under five years old. It consists of 121,000 rows of data, detailing information on the age, sex, height, and nutritional status of toddlers. This dataset aims to help researchers, nutritionists, and policymakers understand and address the problem of stunting in children under five years old.
+
+Dataset Column Details:
+Age (Month): Indicates the age of a baby/toddler in months. This age range is important for determining a child's growth phase and comparing it to healthy growth standards. (ages 0 to 60 months)
+
+Gender: There are two categories in this column, 'male' and 'female'. Gender is an important factor in analyzing growth patterns and stunting risk.
+
+Height: Recorded in centimeters, height is a key indicator for assessing the physical growth of children under five. This data allows researchers to determine whether a child's growth is in line with age standards.
+
+Nutrition Status: This column is categorized into 4 statuses - 'severely stunted', 'stunted', 'normal', and 'tall'. 'Severely stunted' indicates a very serious condition (<-3 SD), 'stunted' indicates a stunted condition (-3 SD to <-2 SD), 'normal' indicates a healthy nutritional status (-2 SD to +3 SD), and 'tall' indicates above-average growth (>+3 SD). These categories help in the rapid identification and intervention of children at risk or experiencing stunting.
+
+Use of Dataset:
+This dataset is very useful for researchers and practitioners in the field of child health and nutrition, providing important insights for the development of nutrition intervention programs and public health policies. With accurate and detailed data, interventions can be more targeted and effective.
+
+This dataset is designed to be a valuable resource in childhood stunting research and assist in the planning of better prevention and treatment strategies.
+
+
+## Import, view and clean dataset
+```{r} 
+rm(list = ls())
+
+data = "C:/Users/ASUS/OneDrive/Desktop/CSC 642/Project/data_balita.csv"
+data = read.csv(data, header = TRUE) 
+head(data)  
+```
+
+```{r} 
+str(data)
+```
+
+```{r, echo=FALSE}
+library(sqldf)
+
+# Relabel the data in English
+new_data = data
+
+new_names = c("Age_month", "Gender", "Height_cm", "Nutritional_status")
+old_names = c("Umur..bulan.", "Jenis.Kelamin", "Tinggi.Badan..cm.", "Status.Gizi")
+
+colnames(new_data)[colnames(new_data) %in% old_names] = new_names
+
+new_data = sqldf("
+  SELECT
+    Age_month,
+    CASE
+      WHEN Gender = 'laki-laki' THEN 'male'
+      WHEN Gender = 'perempuan' THEN 'female'
+      ELSE Gender
+    END AS Gender,
+    Height_cm,
+    CASE
+      WHEN Nutritional_status = 'tinggi' THEN 'tall'
+      ELSE Nutritional_status
+    END AS Nutritional_status
+  FROM new_data
+")
+```
+
+```{r, echo=FALSE}
+library(caret)
+
+categorical_data = new_data[, c("Nutritional_status", "Gender")]
+numerical_data = new_data[, c("Age_month", "Height_cm")]
+preprocessed_data = cbind(numerical_data, categorical_data) 
+
+# Convert to Gender and Nutritional_status to factors using as.factor
+preprocessed_data$Nutritional_status = as.factor(preprocessed_data$Nutritional_status)
+preprocessed_data$Gender = as.factor(preprocessed_data$Gender)
+
+# Convert to Gender to numerical data using one-hot encoding. 
+# No need to convert Nutritional_status since it is the target variable.
+formula = ~ Gender
+dummies = dummyVars(formula, data = preprocessed_data) 
+preprocessed_data <- cbind(preprocessed_data[, !(names(preprocessed_data) %in% "Gender")], 
+                           predict(dummies, newdata = preprocessed_data))
+
+# Scaling: centering them at zero and scaling them to have a standard deviation of one.
+preprocessed_data[, c("Age_month", "Height_cm")] = scale(preprocessed_data[, c("Age_month", "Height_cm")]) 
+```
+
+```{r, echo=FALSE}
+# Find the total number of rows, columns and check for missing values in the dataset
+total_na_count = sum(is.na(preprocessed_data))
+n_rows = nrow(preprocessed_data)
+n_cols = ncol(preprocessed_data)
+
+cat(
+  "\nTotal Number of rows: ", n_rows,
+  "\nTotal Number of columns: ", n_cols,
+  "\nTotal NA values: ", total_na_count
+)
+```
+
+```{r} 
+str(preprocessed_data)
+```
+
+```{r} 
+summary(preprocessed_data)
+```
+
+```{r}
+# Distribution of the population among the 4 different statuses in Nutritional_status
+prop.table(table(preprocessed_data$Nutritional_status))
+```
+
+```{r}
+# Bar plot to visualize the distribution
+barplot(table(preprocessed_data$Nutritional_status))
+```
+
+```{r}
+# Distribution of genders across the different statuses in the Nutritional status column.
+prop.table(table(preprocessed_data$Gender))
+
+prop.table(table(preprocessed_data$Nutritional_status, new_data$Gender), margin = 1)
+```
+
+```{r}  
+# Visualize height distribution by Nutritional status.
+boxplot(Height_cm ~ Nutritional_status, 
+        data = new_data, 
+        main = "Height Distribution by Nutritional Status") 
+```
+
+```{r}  
+# Visualize age (in months) distribution by Nutritional status.
+boxplot(Age_month ~ Nutritional_status, 
+        data = new_data, 
+        main = "Age Distribution by Nutritional Status") 
+```
+
+```{r, echo=FALSE}
+# Divide the datasets into 80% for training and 20% for testing. 
+set.seed(323241)
+
+# Divide the datasets into 80% for training and 20% for testing. 
+training_ratio = 0.8
+testing_ratio = (1 - training_ratio)
+
+total_num_rows = nrow(preprocessed_data)
+training_size = as.integer(total_num_rows * training_ratio) 
+testing_size = (total_num_rows - training_size)
+
+training_index = sample(1:total_num_rows, size = training_size)
+training_data = preprocessed_data[training_index, ]
+testing_data = preprocessed_data[-training_index, ]
+
+cat("Number of rows in the training dataset: ", training_size,
+    "\nNumber of rows in the testing dataset: ", testing_size)
+```
+
+
+## Logistic Regression
+Multinomial Logistic Regression: A natural extension of binomial logistic regression. It models the probabilities of each class directly and allows clear interpretation of feature effects on class probabilities. 
+Because we have more than 2 categories we are trying to predict in the Nutritional_status column, we can't use binomial logistic regression (use when predicting only two categories) hence why we chose multinomial logistic regression.
+
+```{r}
+library(nnet)
+
+model_logistic_regression = multinom(Nutritional_status ~ ., data = training_data)
+summary(model_logistic_regression)
+```
+
+```{r}
+# Using examples, we interpret the meaning of some of the coefficients'
+# We exponentiate the coefficients to get odds ratios for clearer interpretation. 
+# The coefficients can't be meaningfully interpreted directly from the summary.
+exp(coef(model_logistic_regression))
+```
+
+Explaining the results from the Logistic Regression Model 
+
+• The model fitting process converged i.e. stopped successfully. 
+• The coefficients indicate how a one-unit change in a feature affects the log-odds of an observation being in that category vs. the baseline (normal) category. 
+• To make the results more interpretable, we use exponential of odds ratios to get odds ratios for clearer interpretation. The coefficients can't be meaningfully interpreted directly from the summary. 
+
+• An odds ratio:
+  - equal to 1: Indicates no association between the feature and the odds of belonging to that category (vs. normal).
+  - greater than 1: Indicates an increase in the odds of being in that category (vs. normal) for a one-unit increase in the feature.
+  - less than 1: Indicates a decrease in odds for a one-unit increase in the feature.
+
+• Severely Stunted Class:
+  - Age_month: The odds ratio of 5125.47 is a very strong positive association and means that as children age by one month, the odds of them being classified as 'severely stunted' are multiplied by over 5000, relative to being classified as normal, holding other features constant.
+  - Height_cm: The odds ratio of 0.000014 is a very strong negative association and means that as height increases by one centimeter, the odds of being classified as 'severely stunted' become extremely low compared to being normal, holding other features constant.
+  - Females (Gender.female) have an odds ratio of 0.0984 compared to males (Gender.male) of being in the 'severely stunted' class relative to the normal class, controlling for other features. This is a negative association and means that females have a lower likelihood of being classified as 'severely stunted' compared to males, after accounting for the effects of age, height, and other variables in the model. 
+
+• Tall Class:
+  - Age_month: The odds ratio of 0.000035 is a very strong negative association and means that the odds of them being classified as 'tall' as children age by 1 month become extremely low, relative to being normal, holding other features constant.
+  - Height_cm: The odds ratio of 2124.22 is a very strong positive association and means that are multiplied by over 2000, relative to being normal, holding other features constant.
+  - Females (Gender.female) have an odds ratio of 0.2388 compared to males (Gender.male) of being in the 'tall' class relative to the normal class, controlling for other features.This is a negative association and means that Females have a lower likelihood of being classified as 'tall' compared to males holding other features constant. 
+
+```{r} 
+library(car) 
+anova_results = Anova(model_logistic_regression, type = "III")
+anova_results
+```
+
+Explaining the results from the Anova test 
+LR Chisq Column: 
+Larger values of Likelihood Ratio Chi-squared test statistic indicate a stronger association between the predictor and the outcome. 
+ 
+Pr(>Chisq) Column: 
+The extremely small p-values indicate that the associated predictor is very likely to have a real effect on the outcome. 
+*** means the associated predictor is highly significant. 
+ 
+We conclude that from the Anova test above, all the predictors are statistically significant. 
+Gender looks to be insignificant but it is significant, we suspect splitting the genders is making each gender by itself insignificant.
+
+```{r}
+library(caret)
+prediction_logistic_regression = predict(model_logistic_regression, 
+                                         newdata = testing_data, 
+                                         type = "class")
+
+# table(predicted = prediction_logistic_regression, true = testing_data$Nutritional_status)
+CM_logistic_regression = confusionMatrix(
+  data = prediction_logistic_regression, 
+  reference = testing_data$Nutritional_status)
+CM_logistic_regression
+```
+
+Logistic Regression: Evaluation Metrics 
+The accuracy metric explains the overall proportion of correct predictions. 
+Accuracy = 0.7767 suggests that  77.67% of the time your model correctly predicts nutritional class. 
+
+Kappa measures agreement between predictions and true labels, adjusted for chance. 
+Kappa = 0.6206, a Kappa value above 0.6 generally indicates substantial agreement. 
+
+Sensitivity (Recall) measures the proportion of true positives within each class that the model correctly identifies. 
+This logistic model is best at detecting the 'normal' class (sensitivity = 0.89), followed by 'severely stunted' (0.8571). 
+Sensitivity = 0.19261 for the 'stunted' class, this is low and it indicates the model struggles more with identifying these cases. 
+
+Specificity measures the proportion of true negatives within each class that the model correctly identifies. 
+This logistic model has high specificity across most classes, meaning it's good at correctly identifying 
+individuals who don't belong to a particular class.
+
+
+
+## Decision Trees
+Decision Trees generate a tree-like structure that clearly explain how a prediction is made and can capture complex, non-linear patterns in the data. This is useful if the relationship between the predictors and stunting status is not simply a straight line.
+We chose to use this method because decision trees work well with both numeric and categorical features, are easy to interpret, and handle non-linear relationships
+
+```{r}
+library(rpart) 
+
+model_decision_tree = rpart(Nutritional_status ~ ., data = training_data, method = "class")
+# summary(model_decision_tree) too detailed and complex not easy to interpret
+```
+
+```{r}
+prediction_decision_tree = predict(model_decision_tree, newdata = testing_data, type = "class") 
+
+# table(predicted = prediction_decision_tree, true = testing_data$Nutritional_status)
+CM_decision_tree = confusionMatrix(
+  data = prediction_decision_tree, 
+  reference = testing_data$Nutritional_status)
+CM_decision_tree
+```
+
+
+
+## Bagging and Random Forest
+Both bagging and random forests use decision trees as their core base model. While useful, decision trees on their own have limitations i.e. Overfitting and Sensitivity. 
+
+
+### Bagging
+We chose to use bagging because it builds on decision trees and addresses over fitting and instability in decision trees.
+Bagging addresses these issues by:
+  • Ensemble of Trees: Creating many different decision trees, each trained on a randomly sampled subset with replacement of the original data.
+  • Combined Wisdom: Predictions are made by averaging (for regression) or majority vote (for classification) across all the trees.
+  • Result: The combined model is more stable and less prone to over fitting than a single decision tree.
+
+```{r}
+library(randomForest)
+
+m1 = 4
+model_bagging = randomForest(Nutritional_status ~ ., data = training_data, 
+                             mtry = m1, importance = T)
+
+model_bagging 
+```
+
+```{r}
+varImpPlot(model_bagging) 
+```
+
+```{r}
+prediction_bagging = predict(model_bagging, newdata = testing_data)
+
+CM_bagging = confusionMatrix(
+  data = prediction_bagging, 
+  reference = testing_data$Nutritional_status)
+CM_bagging
+```
+
+
+### Random Forest
+We chose random forests because it builds upon bagging and introduces an extra level of randomness:
+  • Feature Randomness: At each split in a decision tree, only a random subset of features is considered.
+  • Goal: This forces the individual trees to be even more diverse (de-correlated) from each other.
+  Benefits:
+    • Enhanced Variance Reduction Pushing the reduction in variance even further compared to bagging.
+    • Robustness: Makes the model less sensitive to the impact of particularly strong individual features.
+
+```{r}
+m2 = sqrt(m1)
+model_random_forests <- randomForest(Nutritional_status ~ ., data = training_data, 
+                                     mtry = m2, importance = T) 
+model_random_forests
+```
+
+```{r}
+varImpPlot(model_random_forests) 
+```
+
+```{r}
+prediction_random_forests = predict(model_random_forests, newdata = testing_data)
+
+CM_random_forests = confusionMatrix(
+  data = prediction_random_forests, 
+  reference = testing_data$Nutritional_status)
+CM_random_forests
+```
+
+
+
+## Support Vector Machines (SVMs)
+```{r}
+library(e1071)
+set.seed(323242)
+# Could not fine tune the hyper parameters, very costly i.e. takes too long to run
+model_svm_radial = svm(Nutritional_status ~ ., data = training_data, kernel = "radial", 
+                 cost = 1, gamma = 1) 
+
+model_svm_predictions = predict(model_svm_radial, newdata = testing_data)
+confusion_matrix_svm_radial = confusionMatrix(model_svm_predictions, testing_data$Nutritional_status)
+confusion_matrix_svm_radial
+```
+
+SVM: Evaluation Metrics 
+The accuracy metric explains the overall proportion of correct predictions. 
+Accuracy = 0.9897 suggests that  98.97% of the time your model correctly predicts nutritional class. 
+
+Kappa measures agreement between predictions and true labels, adjusted for chance. 
+Kappa = 0.9832, a Kappa value above 0.6 generally indicates substantial agreement. 
+This is a very strong Kappa value, suggesting the model's predictions are substantially better than random chance 
+ 
+Sensitivity (Recall) measures the proportion of true positives within each class that the model correctly identifies. 
+This SVM model excels  at identifying true positives for each nutritional class across all classes. 
+ 
+Specificity measures the proportion of true negatives within each class that the model correctly identifies. 
+This SVM model has exceptionally high specificity across all the classes, meaning the model is excellent at correctly classifying individuals as not belonging to each nutritional class.
+
+```{r}
+# Bar plot to visualize the distribution
+barplot(table(preprocessed_data$Nutritional_status))
+```
+
+From the above bar plot, we can see that there is an imbalance in the classes. Below we use the sensitivity metric to investigate how the models used in this project handle the imbalance across the different classes.
+ - Logistic Regression model: Stunted Class has a Sensitivity = 0.19261 
+ - Decision Trees model: Stunted Class has a Sensitivity = 0.33161 
+ - Bagging model: Stunted Class has a Sensitivity = 0.9963 
+ - Random Forest model: Stunted Class has a Sensitivity = 0.80222 
+ - SVMs model: Stunted Class has a Sensitivity = 0.9627 
+ 
+Imbalanced data can lead models to a have bias towards the majority class. From above we can conclude that Logistic regression and single decision trees are more susceptible to this bias. This is because they don't inherently have mechanisms to compensate for imbalance.
+
+
+
+
