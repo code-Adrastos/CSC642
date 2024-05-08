@@ -14,4 +14,4 @@ The dataset was imported and cleaned, with columns relabeled and missing values 
 **Conclusion**
 Machine learning offers a powerful approach to analyzing large datasets efficiently and accurately, identifying subtle patterns and interactions among variables. By predicting stunting in toddlers, we can improve the effectiveness of nutritional interventions and enhance the health and well-being of children worldwide.
 
-Note: The dataset used in this study is not included in this repository. To access the dataset, please visit the Kaggle website https://www.kaggle.com/datasets/rendiputra/stunting-balita-detection-121k-rows/data
+Note: The dataset used in this study is included in this repository and can also be accesed through the Kaggle website: https://www.kaggle.com/datasets/rendiputra/stunting-balita-detection-121k-rows/data
